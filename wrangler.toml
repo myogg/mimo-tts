@@ -1,0 +1,9 @@
+name = "xiaomi-tts"
+main = "src/index.js"
+compatibility_date = "2025-10-01"
+
+# 纯 API 代理，无需 R2 / 数据库 / 任何存储绑定。
+# 小米 TTS 仅支持 chat/completions（官方确认 /v1/audio/speech 实测 404），无需切换上游模式。
+#
+# 密钥（不进仓库，用 secret 注入）：
+#   wrangler secret put XIAOMI_API_KEY
