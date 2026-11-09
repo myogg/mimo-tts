@@ -5,12 +5,17 @@
  * 不存储、不缓存、不落 R2 —— 纯粹的转发 API。
  *
  * 接口：
- *   GET/POST /tts?text=...&voice=Chloe&format=mp3   直接返回音频二进制（默认 mp3）
+ *   GET/POST /tts?text=...&voice=白桦&format=mp3   直接返回音频二进制（默认 mp3）
  *   POST      /v1/audio/speech (OpenAI 兼容)         直接返回音频二进制
- *   GET       /voices                                返回可用音色 / 格式列表
+ *   GET       /voices                                返回可用音色 / 格式列表（公开，信息无害）
  *   GET       /                                      浏览器测试台
  *
- * 密钥：XIAOMI_API_KEY（wrangler secret put 注入，不进代码、不暴露给前端）
+ * 密钥（都在 Worker 端，不进代码、不暴露给前端）：
+ *   XIAOMI_API_KEY  必填，小米上游 Key
+ *   ACCESS_TOKEN    可选，防白嫖：设置后 /tts 与 /v1/audio/speech 需带令牌；
+ *                   未设置时保持开放（便于先部署跑通）。
+ *                   传递方式三选一：Authorization: Bearer <token>（推荐）、
+ *                   X-Access-Token: <token> 头、或 ?token=<token>（GET 方便但会进日志）。
  */
 
 const API_BASE = "https://api.xiaomimimo.com";
@@ -29,7 +34,7 @@ const MAX_TEXT = 8000;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization"
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Access-Token"
 };
 
 export default {
@@ -46,6 +51,11 @@ export default {
         return new Response(TEST_PAGE, {
           headers: { "Content-Type": "text/html; charset=utf-8", ...CORS_HEADERS }
         });
+      }
+      // 合成接口统一做鉴权（测试台页面与 /voices 保持公开，页面本身不含任何密钥）
+      if (path === "/tts" || path === "/v1/audio/speech") {
+        const denied = checkAccess(request, url, env);
+        if (denied) return denied;
       }
       if (path === "/tts") {
         return await handleSimple(request, env, url);
@@ -199,6 +209,45 @@ function contentTypeFor(format) {
   }
 }
 
+// ---------- 访问控制（防白嫖） ----------
+// 未配置 ACCESS_TOKEN 时返回 null，接口保持开放（便于先部署跑通）。
+function checkAccess(request, url, env) {
+  const expected = env.ACCESS_TOKEN;
+  if (!expected) return null;
+
+  const auth = request.headers.get("Authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const headerToken = request.headers.get("X-Access-Token") || "";
+  const queryToken = url.searchParams.get("token") || "";
+  const got = bearer || headerToken || queryToken;
+
+  if (!safeEqual(String(got), String(expected))) {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized: invalid or missing access token" }),
+      {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": "Bearer",
+          ...CORS_HEADERS
+        }
+      }
+    );
+  }
+  return null;
+}
+
+// 常量时间比较，避免按字节逐个短路造成的时序侧信道
+function safeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const n = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < n; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
 function json(code, obj) {
   return new Response(JSON.stringify(obj), {
     status: code,
@@ -227,11 +276,13 @@ const TEST_PAGE = `<!doctype html>
   #status{margin-top:10px;font-size:13px;color:#666;white-space:pre-wrap}
   code{background:#f3f3f3;padding:2px 4px;border-radius:3px}
   .tip{font-size:12px;color:#999}
+  .warn{font-size:12px;color:#c0392b}
 </style>
 </head>
 <body>
 <h1>🎙️ MiMo TTS 测试台</h1>
 <p class="tip">本页由你的 Worker 直接托管，调用的是你自己的 API（Key 在 Worker 端）。纯转发，不存储。</p>
+<p class="warn">若已配置 <code>ACCESS_TOKEN</code>，请在下方填入后再调用；未配置则留空即可（此时接口为公开状态）。</p>
 <textarea id="text" placeholder="输入要合成的文字...">你好，欢迎使用小米大模型语音合成服务。</textarea>
 <div class="row">
   <label>音色 <select id="voice"></select></label>
@@ -241,6 +292,9 @@ const TEST_PAGE = `<!doctype html>
     </select>
   </label>
   <label>风格(可选) <input id="style" placeholder="如：温柔 慢速" size="14"></label>
+</div>
+<div class="row">
+  <label>访问令牌 <input id="token" type="password" placeholder="ACCESS_TOKEN（可选）" size="26" autocomplete="off"></label>
   <button id="go">生成语音</button>
 </div>
 <audio id="player" controls></audio>
@@ -252,13 +306,19 @@ VOICES.forEach(v => { const o = document.createElement('option'); o.value = v; o
 sel.value = "白桦";
 const status = document.getElementById('status');
 const player = document.getElementById('player');
+const tokenEl = document.getElementById('token');
+try { tokenEl.value = sessionStorage.getItem('mimo_access_token') || ''; } catch (_) {}
+tokenEl.addEventListener('change', () => { try { sessionStorage.setItem('mimo_access_token', tokenEl.value); } catch (_) {} });
 document.getElementById('go').onclick = async () => {
   const text = document.getElementById('text').value;
   status.textContent = '请求中...';
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    const tok = tokenEl.value.trim();
+    if (tok) headers['Authorization'] = 'Bearer ' + tok;
     const r = await fetch('/tts?format=' + document.getElementById('format').value, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ text, voice: sel.value, style: document.getElementById('style').value })
     });
     if (!r.ok) {
