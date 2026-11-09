@@ -21,7 +21,7 @@ const VALID_VOICES = [
   "mimo_default", "冰糖", "茉莉", "苏打", "白桦",
   "Mia", "Chloe", "Milo", "Dean"
 ];
-const DEFAULT_VOICE = "Chloe";
+const DEFAULT_VOICE = "白桦";
 const DEFAULT_MODEL = "mimo-v2.5-tts";
 const VALID_FORMATS = ["mp3", "wav", "pcm", "pcm16"];
 const MAX_TEXT = 8000;
@@ -253,7 +253,7 @@ const TEST_PAGE = `<!doctype html>
 const VOICES = ["mimo_default","冰糖","茉莉","苏打","白桦","Mia","Chloe","Milo","Dean"];
 const sel = document.getElementById('voice');
 VOICES.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
-sel.value = "Chloe";
+sel.value = "白桦";
 const status = document.getElementById('status');
 const player = document.getElementById('player');
 document.getElementById('go').onclick = async () => {
