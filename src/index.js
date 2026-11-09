@@ -123,16 +123,12 @@ async function callUpstream({ text, voice, format, model, style, env }) {
   }
 
   // 官方确认：小米 TTS 仅支持 OpenAI 兼容的 chat/completions（/v1/audio/speech 实测 404）。
-  // 文本必须放在 assistant 角色；user 角色可放风格 / 指令（可选，不出声）。
+  // 文本必须放在 assistant 角色；user 角色放风格 / 指令（可选，不出声）。
+  // 没有风格指令时干脆不传 user，避免个别实现对空 content 报 400。
   const upstreamPath = "/v1/chat/completions";
-  const upstreamBody = {
-    model,
-    messages: [
-      { role: "user", content: style || "" },
-      { role: "assistant", content: text }
-    ],
-    audio: { format, voice }
-  };
+  const messages = [{ role: "assistant", content: text }];
+  if (style && style.trim()) messages.unshift({ role: "user", content: style });
+  const upstreamBody = { model, messages, audio: { format, voice } };
 
   const resp = await fetch(API_BASE + upstreamPath, {
     method: "POST",
