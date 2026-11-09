@@ -1,0 +1,14 @@
+{
+  "name": "xiaomi-tts-api",
+  "version": "1.0.0",
+  "description": "小米 MiMo TTS 的 Cloudflare Workers 纯 API 代理（不存储、不缓存）",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}
