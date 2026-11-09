@@ -6,4 +6,5 @@ compatibility_date = "2025-10-01"
 # 小米 TTS 仅支持 chat/completions（官方确认 /v1/audio/speech 实测 404），无需切换上游模式。
 #
 # 密钥（不进仓库，用 secret 注入）：
-#   wrangler secret put XIAOMI_API_KEY
+#   wrangler secret put XIAOMI_API_KEY   # 必填，小米上游 Key
+#   wrangler secret put ACCESS_TOKEN     # 可选，防白嫖；不配则接口开放，配了才校验
